@@ -1,0 +1,222 @@
+#include <LiquidCrystal_I2C.h>
+#include <Servo.h>
+const int trigPin = 32;
+const int echoPin = 33;
+const int echoPin1 = 35;
+const int led1 = 23;
+const int led2 = 18;
+const int led3 = 19;
+#include <WiFi.h>
+#include "ThingSpeak.h"
+const char* ssid = "joejoe"; // your network SSID (name) 
+const char* password = "joejoe123";
+//define sound velocity in distanceCm/uS
+#define SOUND_VELOCITY 0.034
+#define CM_TO_INCH 0.393701
+WiFiClient client;
+unsigned long myChannelNumber = 3;
+const char * myWriteAPIKey = "906MHNTU7F9DV0SF";
+long duration;
+float distanceCm;
+float distanceInch;
+// set the LCD number of columns and rows
+int lcdColumns = 16;
+int lcdRows = 2;
+Servo servo;
+// set LCD address, number of columns and rows
+// if you don't know your display address, run an I2C scanner sketch
+LiquidCrystal_I2C lcd(0x27, lcdColumns, lcdRows); double startTime = 0; // Initialize the start time
+double endTime = 0; // Initialize the end time
+double timeTakenInSeconds = 0; // Difference between start and end time
+float speedOfObject = 0; // Holds the value distance divided by time taken
+const double distance = 1; // Distance between the two sensors in meters
+
+int executed = 0; // Flag to run the code in the loop only once. When set to 1, code in the loop is not executed.
+const int sensor1 = 13; // First sensor is connected to pin 13
+const int sensor2 = 27; // Second sensor is connected to pin 27
+void setup() {
+  Serial.begin(9600);
+  servo.attach(26);
+  lcd.init();
+   lcd.backlight();
+   lcd.print("IOT enabled");
+   lcd.setCursor(0,1);
+   lcd.print("Speed Monitor");
+   delay(3000);
+   lcd.clear();
+   WiFi.mode(WIFI_STA);   
+  ThingSpeak.begin(client);
+  int count = 0;
+ if((WiFi.status() != WL_CONNECTED)){
+  Serial.print("Attempting to connect");
+  lcd.print("Connecting");
+  while(WiFi.status() != WL_CONNECTED && count<5){
+    WiFi.begin(ssid, password); 
+    delay(5000); 
+    count ++;    
+  } 
+  lcd.clear();
+  Serial.println("\nConnected.");
+  lcd.print("Cloud Enabled");
+  delay(3000);
+  lcd.clear();
+ }
+ else {
+  lcd.print("Cloud Disabled");
+  delay(3000);
+  lcd.clear();
+ }
+  // turn on LCD backlight                      
+ 
+  // Sets the pin modes of sensors
+  pinMode(sensor1, INPUT);
+  pinMode(sensor2, INPUT);
+  servo.write(0);
+  pinMode(trigPin, OUTPUT); // Sets the trigPin as an Output
+  pinMode(echoPin, INPUT);
+   pinMode(echoPin1, INPUT); 
+    pinMode(led1, OUTPUT); // Sets the trigPin as an Output
+  pinMode(led2, OUTPUT);
+    pinMode(led3, OUTPUT); // Sets the trigPin as an Output
+   ThingSpeak.begin(client);
+  
+}
+
+void loop() {
+   digitalWrite(trigPin, LOW);
+  delayMicroseconds(2);
+  // Sets the trigPin on HIGH state for 10 micro seconds
+  digitalWrite(trigPin, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+
+  // Reads the echoPin, returns the sound wave travel time in microseconds
+  duration = pulseIn(echoPin, HIGH);
+  
+  // Calculate the distance
+  distanceCm = duration * SOUND_VELOCITY/2;
+  
+  // Convert to inches
+  distanceInch = distanceCm * CM_TO_INCH;
+  lcd.setCursor(0, 0);
+  lcd.print("Speed= 0.00");
+  lcd.setCursor(12,0);
+  lcd.print("m/s");
+  if(distanceCm > 10){
+    digitalWrite(led3,HIGH);
+     digitalWrite(led1,LOW);
+    lcd.clear();
+    lcd.setCursor(0, 0);
+  lcd.print("Speed= 0.00");
+  lcd.setCursor(12,0);
+  lcd.print("m/s");
+    servo.write(0);
+  if (executed == 0) { // Flag is initialized to 0 to ensure that the loop runs only once
+    if (digitalRead(sensor1) == LOW) { // If movement is detected by the first sensor
+      if (startTime == 0) { // If startTime is 0 and no time has been logged yet
+        startTime = millis(); // Assign Arduino time to startTime
+      }
+    }
+
+    if (digitalRead(sensor2) == LOW) { // If movement is detected by the second sensor
+      if (endTime == 0) { // If endTime is 0 and no time has been logged yet
+        endTime = millis(); // Assign Arduino time to endTime
+      }
+    }
+
+    if ((startTime != 0) && (endTime != 0)) { // Now calculate the speed of the object if both times have been registered
+      if (startTime < endTime) { // If the object moves from sensor1 to sensor2
+        timeTakenInSeconds = (endTime - startTime) / 1000.0; // Convert milliseconds to seconds
+        speedOfObject = distance / timeTakenInSeconds; // Calculate speed in meters per second
+
+        // Print the values to the serial monitor
+        Serial.print("Start Time: ");
+        Serial.print(startTime);
+        Serial.println(" milliseconds");
+        Serial.print("End Time: ");
+        Serial.print(endTime);
+        Serial.println(" milliseconds");
+        Serial.print("Speed of Object = ");
+        Serial.print(speedOfObject);
+        Serial.println(" m/s");
+        Serial.println();
+        lcd.setCursor(7,0);
+        lcd.print(speedOfObject);
+        executed = 1; // Set the value to 1 to stop the loop from running again
+        if(speedOfObject>1){
+         servo.write(180);
+         digitalWrite(led3,LOW);
+        digitalWrite(led1,HIGH);
+        }
+        ThingSpeak.setField(1, speedOfObject);
+         int x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
+  if(x == 200){
+    Serial.println("Channel update successful.");
+  }
+  else{
+    Serial.println("Problem updating channel. HTTP error code " + String(x));
+  }
+  
+        reset();
+      } else { // If the object moves from sensor2 to sensor1
+        timeTakenInSeconds = (startTime - endTime) / 1000.0; // The value of startTime is greater than endTime
+        speedOfObject = distance / timeTakenInSeconds; // Calculate speed in meters per second
+
+        // Print the values to the serial monitor
+        Serial.print("Start Time: ");
+        Serial.print(endTime);
+        Serial.println(" milliseconds");
+        Serial.print("End Time: ");
+        Serial.print(startTime);
+        Serial.println(" milliseconds");
+        Serial.print("Speed of Object = ");
+        Serial.print(speedOfObject);
+        Serial.println(" m/s");
+        Serial.println();
+        lcd.setCursor(7,0);
+        lcd.print(speedOfObject);
+        
+    if(speedOfObject>1){
+         servo.write(180);
+         digitalWrite(led3,LOW);
+        digitalWrite(led1,HIGH);
+        }
+        
+        executed = 1; 
+        ThingSpeak.setField(1, speedOfObject);
+        int x = ThingSpeak.writeFields(myChannelNumber, myWriteAPIKey);
+  if(x == 200){
+    Serial.println("Channel update successful.");
+  }
+  else{
+    Serial.println("Problem updating channel. HTTP error code " + String(x));
+  }
+        reset(); // A function to start the loop from running again
+      } 
+    }
+  }
+ }
+ else{
+  digitalWrite(led3,LOW);
+  digitalWrite(led1,HIGH);
+  lcd.setCursor(0,1);
+  lcd.print("People Crossing!");
+  servo.write(180);
+  delay(3000);
+
+ }
+}
+
+
+void reset() {
+
+  delay(3000); // Wait for 5 seconds
+  executed = 0; // Reset the executed flag
+  startTime = 0; // Reset start time
+  endTime = 0; // Reset end time
+  speedOfObject = 0; // Reset speed
+  digitalWrite(led1,LOW);
+  digitalWrite(led3,HIGH);
+  lcd.clear();
+  servo.write(0);
+}
